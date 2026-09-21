@@ -1,0 +1,29 @@
+[Unit]
+Description=Battery history sampler
+Documentation=https://github.com/jaehho/battery-log
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/battery-logd
+# Creates and owns ~/.local/state/battery-log, and keeps it writable through
+# the sandbox below -- naming the path in ReadWritePaths instead would fail to
+# start on a machine where it does not exist yet.
+StateDirectory=battery-log
+# The sampler is the least urgent thing running, and the point is to measure
+# the machine, not to become part of what it measures.
+Nice=10
+IOSchedulingClass=idle
+Restart=on-failure
+RestartSec=10
+# It reads /sys and /proc, talks to logind and UPower on the system bus and to
+# the notification daemon on the session bus, and writes one SQLite file.
+# Nothing else.
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+PrivateTmp=true
+RestrictAddressFamilies=AF_UNIX
+MemoryMax=128M
+
+[Install]
+WantedBy=default.target

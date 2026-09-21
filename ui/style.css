@@ -1,0 +1,212 @@
+/* Colors arrive at boot from the desktop palette (see app.js applyPalette).
+   The values here are the fallback and the shape of the scheme. */
+:root {
+  --base: #141c1e; --mantle: #101719; --crust: #0c1315;
+  --text: #cfdadc; --subtext0: #9da7a9; --overlay1: #6d7679; --overlay2: #848e91;
+  --surface0: #20282a; --surface1: #2f3739; --surface2: #41494c;
+  --blue: #3f7dae; --sapphire: #00898f; --green: #4f8751; --peach: #a6653e;
+  --mauve: #7c6bac; --red: #ab5e59; --yellow: #8e7426;
+
+  --level: var(--blue);
+  --draw: var(--peach);
+  --cpu: var(--sapphire);
+  --charge: var(--green);
+  --sleep: var(--mauve);
+  --radius: 12px;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body {
+  margin: 0;
+  background: var(--crust);
+  color: var(--text);
+  font: 13.5px/1.55 "Inter", system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  display: flex; flex-direction: column;
+  overflow: hidden;
+  user-select: none;
+}
+
+/* ── titlebar ─────────────────────────────────────────────────────────── */
+.titlebar {
+  display: flex; align-items: center; gap: 16px;
+  padding: 0 8px 0 16px; height: 42px; flex: none;
+  background: var(--mantle); border-bottom: 1px solid var(--surface0);
+}
+.brand { font-weight: 600; letter-spacing: -0.01em; color: var(--subtext0); flex: none; }
+.live { flex: 1; display: flex; align-items: center; gap: 14px; overflow: hidden;
+        white-space: nowrap; font-variant-numeric: tabular-nums; }
+.live .cap { font-size: 15px; font-weight: 600; }
+.live .gauge {
+  width: 74px; height: 9px; border-radius: 99px; background: var(--surface1);
+  overflow: hidden; flex: none;
+}
+.live .gauge i { display: block; height: 100%; border-radius: 99px; transition: width .4s ease; }
+.live .sep { width: 1px; align-self: stretch; margin: 10px 2px; background: var(--surface1); }
+.live .dim { color: var(--overlay2); }
+.live .grp { display: flex; gap: 12px; }
+/* Below this the strip starts truncating mid-word. The screen and CPU context
+   is the least urgent of it, so it goes first. */
+@media (max-width: 900px) {
+  .live .grp.dim, .live > i.sep:nth-of-type(2) { display: none; }
+}
+.winbtns { display: flex; gap: 2px; flex: none; }
+.winbtns button {
+  width: 30px; height: 26px; border: 0; border-radius: 7px; background: transparent;
+  color: var(--overlay1); font: inherit; font-size: 12px; cursor: pointer;
+}
+.winbtns button:hover { background: var(--surface0); color: var(--text); }
+#close:hover { background: var(--red); color: #fff; }
+
+/* ── tabs ─────────────────────────────────────────────────────────────── */
+.tabs {
+  display: flex; align-items: center; gap: 4px; padding: 10px 16px 0; flex: none;
+}
+/* Text, not pills: four filled buttons up here made the window read as a
+   toolbar before it read as a chart. */
+.tab {
+  border: 0; background: transparent; color: var(--overlay2); font: inherit;
+  padding: 6px 2px; margin-right: 18px; cursor: pointer;
+  border-bottom: 2px solid transparent;
+}
+.tab:hover { color: var(--text); }
+.tab[aria-pressed="true"] { color: var(--text); border-bottom-color: var(--level); }
+.spacer { flex: 1; }
+.range {
+  background: transparent; color: var(--overlay1); border: 0; padding: 4px 0;
+  font: inherit; font-size: 12.5px; cursor: pointer;
+}
+.range:hover { color: var(--text); }
+
+/* ── layout ───────────────────────────────────────────────────────────── */
+main { flex: 1; overflow-y: auto; padding: 14px 16px 8px; }
+main::-webkit-scrollbar { width: 10px; }
+main::-webkit-scrollbar-thumb { background: var(--surface1); border-radius: 99px; }
+.card {
+  background: var(--base); border: 1px solid var(--surface0); border-radius: var(--radius);
+  padding: 15px 17px 12px; margin-bottom: 14px;
+}
+.cardhead { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 10px; }
+h2 { font-size: 13px; font-weight: 600; letter-spacing: -.005em; color: var(--text); margin: 0; }
+.note { color: var(--overlay1); font-size: 12px; margin: 0; }
+.grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 14px; }
+.grid2.pairs { grid-template-columns: repeat(2, minmax(300px, 1fr)); }
+@media (max-width: 780px) { .grid2.pairs { grid-template-columns: 1fr; } }
+.grid2 .card { margin: 0; }
+
+/* A boxed figure with a rounded border and a hover-ready look is a button.
+   These are readings, so they get whitespace and a hairline instead. */
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(155px, 1fr));
+         gap: 4px 26px; padding-bottom: 15px; margin-bottom: 16px;
+         border-bottom: 1px solid var(--surface0); }
+.tile .k { font-size: 12px; color: var(--overlay1); }
+.tile .v { font-size: 25px; font-weight: 600; letter-spacing: -.02em; margin-top: 1px;
+           font-variant-numeric: tabular-nums; }
+.tile .d { font-size: 11.5px; color: var(--subtext0); margin-top: 1px; }
+.tile.warn .v { color: var(--peach); }
+
+/* The day heading is also the day control: two arrows and the date. */
+.daypick { display: flex; align-items: baseline; gap: 4px; margin: 2px 0 14px; }
+.daypick h1 { font-size: 17px; font-weight: 600; letter-spacing: -.015em; margin: 0 8px 0 2px; }
+.daypick button {
+  border: 0; background: transparent; color: var(--overlay2); cursor: pointer;
+  font: inherit; font-size: 19px; line-height: 1; padding: 2px 6px; border-radius: 7px;
+}
+.daypick button:hover:not(:disabled) { color: var(--text); background: var(--surface0); }
+.daypick button:disabled { color: var(--surface1); cursor: default; }
+.daypick .note { margin-left: auto; }
+
+.legend { display: flex; gap: 15px; flex-wrap: wrap; font-size: 11.5px; color: var(--overlay1);
+          margin-top: 8px; }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.swatch { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
+.swatch.band.charge { background: color-mix(in srgb, var(--charge) 35%, var(--base)); }
+.swatch.band.sleep { background: color-mix(in srgb, var(--sleep) 35%, var(--base)); }
+.legend.standalone { margin: -2px 0 14px 2px; }
+.swatch.hatched {
+  background: repeating-linear-gradient(45deg,
+    var(--draw) 0 2px, color-mix(in srgb, var(--draw) 30%, transparent) 2px 5px);
+}
+.plot { width: 100%; }
+.empty { color: var(--overlay1); font-size: 12.5px; padding: 22px 0; text-align: center; }
+
+/* ── horizontal bar lists (buckets, processes) ────────────────────────── */
+/* One grid for the whole list, with each row's cells hoisted into it, so the
+   label column is as wide as the longest label and no wider. Three separate
+   grids would either misalign or hold a 150px column open for "0-25%". */
+.bars { display: grid; grid-template-columns: minmax(0, max-content) 1fr auto;
+        align-items: center; gap: 7px 12px; }
+.bar { display: contents; }
+.bars .empty { grid-column: 1 / -1; }
+.bar .lab { color: var(--subtext0); white-space: nowrap; overflow: hidden;
+            text-overflow: ellipsis; max-width: 170px; font-size: 12.5px; }
+.bar .track, .bar .val { font-size: 12.5px; }
+/* No filled track behind the bar: a dozen grey capsules read as a dozen
+   sliders. The bar is the mark; the number beside it is the scale. */
+.bar .track { height: 10px; overflow: hidden; }
+/* `i` is inline by default, and an inline box ignores width and height --
+   without this the fill paints nothing and every bar reads as empty. */
+.bar .fill { display: block; height: 100%; border-radius: 4px; transition: width .3s ease; }
+.bar .val { font-variant-numeric: tabular-nums; color: var(--text); white-space: nowrap; }
+.bar .sub { color: var(--overlay1); margin-left: 7px; font-size: 11.5px; }
+
+/* ── sleeps ───────────────────────────────────────────────────────────── */
+.sleeps { display: flex; flex-direction: column; }
+/* Rows, not tiles: eleven filled rounded rectangles in a column look like a
+   list of buttons. A hairline is enough to separate them. */
+.sleep-row {
+  display: grid; grid-template-columns: 1.7fr .55fr .8fr .95fr 1.1fr; gap: 12px;
+  align-items: center; padding: 7px 2px; border-bottom: 1px solid var(--surface0);
+  font-size: 12.5px; font-variant-numeric: tabular-nums;
+}
+.sleep-row:last-child { border-bottom: 0; }
+.sleep-row.bad .when { box-shadow: inset 3px 0 0 var(--peach); padding-left: 8px; margin-left: -8px; }
+.sleep-row .none { color: var(--overlay1); font-variant-numeric: normal; }
+.sleep-row .when { color: var(--text); display: flex; align-items: center; gap: 8px; }
+.sleep-row .muted { color: var(--overlay1); }
+.resid { display: flex; align-items: center; gap: 8px; }
+.resid .track { flex: 1; height: 6px; border-radius: 99px; background: var(--surface1); overflow: hidden; }
+.resid .fill { display: block; height: 100%; background: var(--sapphire); border-radius: 99px; }
+
+/* ── provenance ────────────────────────────────────────────────────────── */
+.fill.est { position: relative; }
+.fill.est::after {
+  content: ""; position: absolute; inset: 0; border-radius: inherit;
+  pointer-events: none;
+  background: repeating-linear-gradient(45deg,
+    transparent 0 3px, color-mix(in srgb, var(--crust) 55%, transparent) 3px 6px);
+}
+/* An estimated table row is dimmed and tagged, not shaded -- the shading sat
+   on top of the numbers. */
+tr.est td { color: var(--overlay1); }
+td .tag, .flag {
+  font-size: 10.5px; color: var(--overlay1); border: 1px solid var(--surface1);
+  border-radius: 5px; padding: 0 5px; white-space: nowrap;
+}
+.flag { justify-self: start; }
+/* Provenance mark: filled means the sampler was there for both ends of the
+   suspend, hollow means it was reconstructed from the hole in the log. */
+.mark { width: 7px; height: 7px; border-radius: 2px; flex: none;
+        border: 1.5px solid var(--sapphire); display: inline-block; }
+.mark.exact { background: var(--sapphire); }
+
+/* ── table ────────────────────────────────────────────────────────────── */
+.tablewrap { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: 12.5px; font-variant-numeric: tabular-nums; }
+th, td { text-align: right; padding: 5px 9px; border-bottom: 1px solid var(--surface0); white-space: nowrap; }
+th:first-child, td:first-child { text-align: left; }
+th { color: var(--overlay1); font-weight: 500; }
+
+footer { flex: none; display: flex; gap: 14px; padding: 6px 16px 10px;
+         color: var(--overlay1); font-size: 11.5px; }
+footer .grow { flex: 1; }
+
+#tip {
+  position: fixed; pointer-events: none; opacity: 0; transition: opacity .09s;
+  background: var(--mantle); border: 1px solid var(--surface2); border-radius: 8px;
+  padding: 7px 10px; font-size: 12px; z-index: 9; white-space: nowrap;
+  box-shadow: 0 8px 24px rgba(0,0,0,.5);
+}
+#tip .row { color: var(--subtext0); font-variant-numeric: tabular-nums; }

@@ -1,0 +1,17 @@
+[package]
+name = "battery-log-core"
+description = "Battery history: sampling, storage, and the analysis behind the dashboard."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+rusqlite = { version = "0.32", features = ["bundled"] }
+# Local dates: every aggregate in the dashboard is a *local* day, and std has
+# no timezone support at all.
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+# logind's PrepareForSleep signal is the only way to sample *at* the suspend
+# boundary rather than a minute either side of it.
+zbus = { version = "4", default-features = false, features = ["blocking", "async-io"] }

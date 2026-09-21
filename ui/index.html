@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>battery-log</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="titlebar" data-tauri-drag-region>
+    <div class="brand" data-tauri-drag-region>battery-log</div>
+    <div class="live" id="live"></div>
+    <div class="winbtns">
+      <button id="min" title="Minimise" aria-label="Minimise">–</button>
+      <button id="max" title="Maximise" aria-label="Maximise">▢</button>
+      <button id="close" title="Close" aria-label="Close">✕</button>
+    </div>
+  </header>
+
+  <nav class="tabs" id="tabs">
+    <button class="tab" data-tab="day" aria-pressed="true">Day</button>
+    <button class="tab" data-tab="history" aria-pressed="false">History</button>
+    <button class="tab" data-tab="sleep" aria-pressed="false">Sleep</button>
+    <button class="tab" data-tab="usage" aria-pressed="false">What used it</button>
+    <span class="spacer"></span>
+    <select id="range" class="range" aria-label="How far back the summaries reach">
+      <option value="7">last 7 days</option>
+      <option value="30" selected>last 30 days</option>
+      <option value="90">last 90 days</option>
+      <option value="365">last year</option>
+    </select>
+  </nav>
+
+  <main id="main">
+    <section class="tiles" id="tiles"></section>
+
+    <div class="panel" data-panel="day">
+      <div class="daypick">
+        <button id="dayPrev" aria-label="Previous day">&lsaquo;</button>
+        <h1 id="dayLabel"></h1>
+        <button id="dayNext" aria-label="Next day">&rsaquo;</button>
+        <p class="note" id="dayNote"></p>
+      </div>
+      <section class="card">
+        <div class="cardhead"><h2>Charge</h2></div>
+        <div id="chartLevel" class="plot"></div>
+        <div class="legend">
+          <span><i class="swatch" style="background:var(--level)"></i>charge</span>
+          <span><i class="swatch" style="background:var(--draw)"></i>draw</span>
+          <span><i class="swatch" style="background:var(--cpu)"></i>cpu</span>
+          <span><i class="swatch band charge"></i>charging</span>
+          <span><i class="swatch band sleep"></i>asleep</span>
+        </div>
+      </section>
+      <section class="card">
+        <div class="cardhead"><h2>Draw</h2><p class="note" id="drawNote"></p></div>
+        <div id="chartDraw" class="plot"></div>
+      </section>
+      <section class="card">
+        <div class="cardhead"><h2>CPU</h2><p class="note">Busy percentage across all cores — the usual reason a flat day turns expensive.</p></div>
+        <div id="chartCpu" class="plot"></div>
+      </section>
+      <section class="card">
+        <div class="cardhead"><h2>What ran on battery</h2><p class="note" id="dayProcNote"></p></div>
+        <div id="dayProcs" class="bars"></div>
+      </section>
+    </div>
+
+    <div class="panel" data-panel="history" hidden>
+      <div class="grid2">
+        <section class="card"><div class="cardhead"><h2>Energy used per day</h2>
+          <p class="note">Watt-hours drawn from the pack while awake and on battery.</p></div>
+          <div id="chartDaily" class="plot"></div></section>
+        <section class="card"><div class="cardhead"><h2>Average draw per day</h2>
+          <p class="note">Wh used divided by hours on battery.</p></div>
+          <div id="chartDailyW" class="plot"></div></section>
+      </div>
+      <p class="legend standalone">
+        <span><i class="swatch" style="background:var(--draw)"></i>measured by the sampler</span>
+        <span><i class="swatch hatched"></i>estimated from upower's seeded rows, which only
+          recorded a sample when the percentage changed</span>
+      </p>
+      <section class="card"><div class="cardhead"><h2>Pack health</h2>
+        <p class="note" id="healthNote"></p></div>
+        <div id="chartHealth" class="plot"></div></section>
+      <section class="card"><div class="cardhead"><h2>The numbers</h2>
+        <p class="note">Every day in range, newest first.</p></div>
+        <div id="table" class="tablewrap"></div></section>
+    </div>
+
+    <div class="panel" data-panel="sleep" hidden>
+      <section class="card"><div class="cardhead"><h2>Every suspend</h2>
+        <p class="note" id="sleepNote"></p></div>
+        <div id="sleepList" class="sleeps"></div></section>
+      <section class="card"><div class="cardhead"><h2>Standby drain per sleep</h2>
+        <p class="note">Watts lost while suspended. A tall bar is a machine that stayed awake in your bag.</p></div>
+        <div id="chartSleep" class="plot"></div></section>
+    </div>
+
+    <div class="panel" data-panel="usage" hidden>
+      <section class="card"><div class="cardhead"><h2>What burned the CPU on battery</h2>
+        <p class="note" id="procNote"></p></div>
+        <div id="procs" class="bars"></div></section>
+      <div class="grid2 pairs">
+        <section class="card"><div class="cardhead"><h2>By display setup</h2>
+          <p class="note">Average draw with the screen off, the panel alone, or an external attached.
+            Screen and CPU context exist only on rows the new sampler wrote.</p></div>
+          <div id="byDisplay" class="bars"></div></section>
+        <section class="card"><div class="cardhead"><h2>By backlight</h2>
+          <p class="note">Average draw per brightness band.</p></div>
+          <div id="byBacklight" class="bars"></div></section>
+        <section class="card"><div class="cardhead"><h2>By CPU load</h2>
+          <p class="note">Average draw per busy band.</p></div>
+          <div id="byCpu" class="bars"></div></section>
+        <section class="card"><div class="cardhead"><h2>By power profile</h2>
+          <p class="note">What each power-profiles-daemon setting actually buys.</p></div>
+          <div id="byProfile" class="bars"></div></section>
+      </div>
+      <section class="card"><div class="cardhead"><h2>By hour of day</h2>
+        <p class="note" id="hourNote"></p></div>
+        <div id="chartHour" class="plot"></div></section>
+    </div>
+  </main>
+
+  <footer id="footer"></footer>
+  <div id="tip" role="status"></div>
+  <script src="app.js"></script>
+</body>
+</html>

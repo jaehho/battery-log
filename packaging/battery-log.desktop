@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=battery-log
+GenericName=Battery history
+Comment=What the battery did, and why
+Exec=battery-log
+Icon=battery-log
+Terminal=false
+Categories=System;Monitor;Utility;
+Keywords=battery;power;energy;suspend;
+StartupWMClass=battery-log
