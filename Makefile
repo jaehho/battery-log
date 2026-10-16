@@ -46,8 +46,8 @@ install:         ## live wrappers in ~/.local for this user (no sudo)
 	sed 's#^ExecStart=/usr/bin/#ExecStart=$(PREFIX)/bin/#' packaging/battery-logd.service \
 		> $(UNITDIR)/battery-logd.service
 	# The live daemon rebuilds itself from the checkout, which the
-	# packaged sandbox refuses (read-only $HOME, 128M cap); it runs
-	# with the user's own permissions instead, like any other build.
+	# packaged sandbox refuses (a read-only home, a 128M cap); it
+	# runs with the user's own permissions instead, like any build.
 	sed -i '/^ProtectSystem=/d;/^ProtectHome=/d;/^PrivateTmp=/d;/^RestrictAddressFamilies=/d;/^MemoryMax=/d' \
 		$(UNITDIR)/battery-logd.service
 	systemctl --user daemon-reload
