@@ -3,7 +3,7 @@
 
 use std::sync::Mutex;
 
-use battery_log_core::analysis::{self, BatteryNow, Dashboard};
+use battery_log_core::analysis::{self, BatteryNow, Dashboard, Stretch};
 use battery_log_core::model::{Kind, ProcDelta};
 use battery_log_core::store::Store;
 use battery_log_core::sysfs::Reader;
@@ -40,6 +40,13 @@ pub fn day_procs(date: String, limit: i64) -> Result<Vec<ProcDelta>, String> {
     store
         .top_procs_on_battery(start, start + 86_400, limit.clamp(1, 50))
         .map_err(|e| e.to_string())
+}
+
+/// The processes, backlight and profile behind one brushed stretch of a day.
+#[tauri::command]
+pub fn stretch(date: String, from_min: f64, to_min: f64) -> Result<Stretch, String> {
+    let store = open()?;
+    analysis::window_summary(&store, &date, from_min, to_min).map_err(|e| e.to_string())
 }
 
 /// The desktop palette, so the window is the same colors as everything else on

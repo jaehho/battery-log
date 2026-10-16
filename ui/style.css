@@ -170,6 +170,22 @@ h2 { font-size: 13px; font-weight: 600; letter-spacing: -.005em; color: var(--te
 .resid .track { flex: 1; height: 6px; border-radius: 99px; background: var(--surface1); overflow: hidden; }
 .resid .fill { display: block; height: 100%; background: var(--sapphire); border-radius: 99px; }
 
+/* ── the brushed stretch ──────────────────────────────────────────────── */
+/* A second note in a cardhead is meta ("drag to explain a stretch"), not a
+   reading, so it sits a step further back than the numbers do. */
+.note.dim { color: var(--overlay2); }
+.subhead { color: var(--overlay1); font-size: 12px; margin: 0 0 8px; }
+.cardhead .x {
+  margin-left: auto; border: 0; background: transparent; color: var(--overlay1);
+  cursor: pointer; font: inherit; font-size: 11px; padding: 2px 8px; border-radius: 7px;
+}
+.cardhead .x:hover { background: var(--surface0); color: var(--text); }
+.facts { display: grid; grid-template-columns: max-content 1fr; gap: 6px 18px;
+         align-content: start; font-size: 12.5px; }
+.facts .k { color: var(--overlay1); }
+.facts .v { font-variant-numeric: tabular-nums; text-align: right; }
+.facts .none { color: var(--overlay1); }
+
 /* ── provenance ────────────────────────────────────────────────────────── */
 .fill.est { position: relative; }
 .fill.est::after {

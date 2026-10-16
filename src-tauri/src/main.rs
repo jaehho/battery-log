@@ -66,6 +66,7 @@ fn run_app() {
             commands::dashboard,
             commands::live,
             commands::day_procs,
+            commands::stretch,
             commands::palette
         ])
         .run(tauri::generate_context!())

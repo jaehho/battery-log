@@ -52,8 +52,22 @@
         </div>
       </section>
       <section class="card">
-        <div class="cardhead"><h2>Draw</h2><p class="note" id="drawNote"></p></div>
+        <div class="cardhead"><h2>Draw</h2><p class="note" id="drawNote"></p>
+          <p class="note dim">drag across it to explain a stretch</p></div>
         <div id="chartDraw" class="plot"></div>
+      </section>
+      <section class="card" id="stretchCard" hidden>
+        <div class="cardhead">
+          <h2>This stretch</h2><p class="note" id="stretchNote"></p>
+          <button class="x" id="stretchClose" title="Dismiss" aria-label="Dismiss">&#10005;</button>
+        </div>
+        <div class="grid2">
+          <div>
+            <p class="subhead">CPU on battery</p>
+            <div id="stretchProcs" class="bars"></div>
+          </div>
+          <div id="stretchFacts" class="facts"></div>
+        </div>
       </section>
       <section class="card">
         <div class="cardhead"><h2>CPU</h2><p class="note">Busy percentage across all cores — the usual reason a flat day turns expensive.</p></div>
