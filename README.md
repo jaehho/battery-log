@@ -42,7 +42,9 @@ battery-logd           the sampler and battery warnings (what the user service r
 ```
 
 In the window: `1`–`4` switch tabs, `r` reloads, the range selector at the top
-right sets how far back the aggregates go.
+right sets how far back the aggregates go. Dragging across the draw chart
+explains that stretch — its cost, brightness, profile, and the processes that
+burned CPU inside exactly those minutes.
 
 ## What it records
 
