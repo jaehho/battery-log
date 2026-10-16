@@ -14,6 +14,8 @@ const state = {
   day: null,
   data: null,
   live: null,
+  // The brushed stretch of the day chart, in minutes-of-day: { day, from, to }.
+  stretch: null,
 };
 
 // ── plumbing ────────────────────────────────────────────────────────────────
@@ -31,6 +33,38 @@ async function call(cmd, args) {
   if (cmd === "live") return demo.battery;
   if (cmd === "palette") return demo._palette || {};
   if (cmd === "day_procs") return demo.top_procs.slice(0, 8);
+  if (cmd === "stretch") {
+    // Read back out of the snapshot's own curve, so the card can be worked on
+    // in a browser. Coarser than the real walk, and only ever demo data.
+    const { date, fromMin: from, toMin: to } = args;
+    const c = demo.curve[date];
+    if (!c) return null;
+    let batteryMin = 0, acMin = 0, wSum = 0, wN = 0, cpuSum = 0, cpuN = 0, blSum = 0, blN = 0;
+    const profiles = {};
+    c.t.forEach((t, i) => {
+      if (t < from || t >= to) return;
+      if (c.state[i] === 1) batteryMin++;
+      else if (c.state[i] === 2 || c.state[i] === 3) acMin++;
+      if (c.w[i] != null) { wSum += c.w[i]; wN++; }
+      if (c.cpu[i] != null) { cpuSum += c.cpu[i]; cpuN++; }
+      if (demo.battery.backlight != null) { blSum += demo.battery.backlight; blN++; }
+      if (demo.battery.profile) profiles[demo.battery.profile] = (profiles[demo.battery.profile] || 0) + 1;
+    });
+    const base = new Date(`${date}T00:00`).getTime() / 1000;
+    return {
+      start: base + from * 60,
+      end: base + to * 60,
+      battery_h: batteryMin / 60,
+      drained_wh: wN ? (wSum / wN) * (batteryMin / 60) : 0,
+      avg_w: wN ? +(wSum / wN).toFixed(2) : null,
+      ac_h: acMin / 60,
+      asleep_h: 0, off_h: 0, unaccounted_h: 0,
+      backlight: blN ? blSum / blN : null,
+      cpu_busy: cpuN ? +(cpuSum / cpuN).toFixed(2) : null,
+      profiles: Object.entries(profiles).map(([label, min]) => ({ label, hours: min / 60 })),
+      top_procs: demo.top_procs.slice(0, 8),
+    };
+  }
   return null;
 }
 
@@ -213,7 +247,43 @@ function chart(host, spec) {
     const cross = el("line", { y1: 0, y2: ih, stroke: css("--surface2"), "stroke-width": 1, opacity: 0 }, g);
     const dot = el("circle", { r: 4, fill: spec.color, stroke: css("--base"), "stroke-width": 2, opacity: 0 }, g);
     const hit = el("rect", { x: 0, y: 0, width: iw, height: ih, fill: "transparent" }, g);
+    // A drag across the plot is a brush: the same hit rect drives both, a
+    // pointerdown starting a selection that a plain click never widens into.
+    let drag = null;
+    const toValue = (clientX) => {
+      const rect = svg.getBoundingClientRect();
+      return xMin + (Math.max(m.l, Math.min(m.l + iw, clientX - rect.left)) - m.l) / iw * (xMax - xMin);
+    };
+    hit.addEventListener("pointerdown", (e) => {
+      if (!spec.brush || e.button !== 0) return;
+      // Inserted under the hit rect, or it would swallow the drag's own moves.
+      const sel = g.insertBefore(el("rect", { y: 0, height: ih, fill: css("--level"),
+        opacity: .15, rx: 2 }, g), hit);
+      drag = { sx: e.clientX, sel };
+      cross.setAttribute("opacity", 0);
+      dot.setAttribute("opacity", 0);
+      hideTip();
+      try {
+        hit.setPointerCapture(e.pointerId);
+      } catch {
+        /* the pointer may already be gone; the drag still works without it */
+      }
+      e.preventDefault();
+    });
     hit.addEventListener("pointermove", (e) => {
+      if (drag) {
+        const left = svg.getBoundingClientRect().left;
+        // Edge coordinates in plot space, clamped to the plot.
+        const a = Math.max(0, Math.min(iw, Math.min(drag.sx, e.clientX) - left - m.l));
+        const b = Math.max(0, Math.min(iw, Math.max(drag.sx, e.clientX) - left - m.l));
+        drag.sel.setAttribute("x", a);
+        drag.sel.setAttribute("width", Math.max(1, b - a));
+        if (spec.brushTip) {
+          showTip(e, spec.brushTip(xMin + (a / iw) * (xMax - xMin),
+                                   xMin + (b / iw) * (xMax - xMin)));
+        }
+        return;
+      }
       const rect = svg.getBoundingClientRect();
       const xv = xMin + ((e.clientX - rect.left - m.l) / iw) * (xMax - xMin);
       let best = -1, bd = Infinity;
@@ -230,7 +300,22 @@ function chart(host, spec) {
       dot.setAttribute("opacity", 1);
       showTip(e, spec.tipFor(best));
     });
+    const endDrag = (commit) => (e) => {
+      if (!drag) return;
+      const { sx, sel } = drag;
+      drag = null;
+      sel.remove();
+      hideTip();
+      if (!commit) return;
+      const a = toValue(sx), b = toValue(e.clientX);
+      // A click that never widened is a crosshair visit, not a brush.
+      if (Math.abs(a - b) < 1) return;
+      spec.brush(a, b);
+    };
+    hit.addEventListener("pointerup", endDrag(true));
+    hit.addEventListener("pointercancel", endDrag(false));
     hit.addEventListener("pointerleave", () => {
+      if (drag) return;
       cross.setAttribute("opacity", 0);
       dot.setAttribute("opacity", 0);
       hideTip();
@@ -362,6 +447,8 @@ function bandsFor(d, day) {
 async function renderDay(d) {
   const days = Object.keys(d.curve).sort();
   if (!state.day || !days.includes(state.day)) state.day = days[days.length - 1];
+  // A selection belongs to the day it was brushed on.
+  if (state.stretch && state.stretch.day !== state.day) state.stretch = null;
   const at = days.indexOf(state.day);
   $("dayLabel").textContent = longDate(state.day);
   $("dayPrev").disabled = at <= 0;
@@ -370,6 +457,10 @@ async function renderDay(d) {
   const c = d.curve[state.day];
   const rec = d.days.find((x) => x.date === state.day) || {};
   const bands = bandsFor(d, state.day);
+  if (state.stretch) {
+    bands.push({ x0: state.stretch.from, x1: state.stretch.to,
+                 color: css("--level"), opacity: .15 });
+  }
   const watts = (c?.w || []).filter((w) => w != null);
 
   $("dayNote").textContent = rec.date
@@ -393,7 +484,12 @@ async function renderDay(d) {
     yMin: 0, yMax: 100, height: 190, yFmt: (v) => `${v}%`, label: `Charge on ${state.day}` });
   chart($("chartDraw"), { ...common, x: c?.t || [], y: c?.w || [], color: css("--draw"), fill: true,
     height: 150, yFmt: (v) => `${v} W`, emptyText: "No time on battery this day.",
-    label: `Draw on ${state.day}` });
+    label: `Draw on ${state.day}`,
+    brushTip: (a, b) => `<b>${clock(a)}–${clock(b)}</b>`,
+    brush: (a, b) => {
+      state.stretch = { day: state.day, from: Math.round(a), to: Math.round(b) };
+      renderDay(d);
+    } });
   chart($("chartCpu"), { ...common, x: c?.t || [], y: c?.cpu || [], color: css("--cpu"), fill: true,
     yMin: 0, yMax: 100, height: 130, yFmt: (v) => `${v}%`,
     emptyText: "CPU context starts with the new daemon — check back tomorrow.",
@@ -407,6 +503,49 @@ async function renderDay(d) {
   barList($("dayProcs"), procs.map((p) => ({ label: p.comm, value: p.cpu_s })), {
     color: "var(--cpu)", fmt: (i) => cpuTime(i.value),
   });
+
+  await renderStretch();
+}
+
+// The card under the draw chart that explains a brushed stretch. Everything
+// in it is the window's own numbers, not the day's scaled down -- the same
+// walk the day view runs, asked about a shorter piece of time.
+async function renderStretch() {
+  const card = $("stretchCard");
+  const st = state.stretch;
+  if (!st || st.day !== state.day) {
+    card.hidden = true;
+    return;
+  }
+  const s = await call("stretch", { date: st.day, fromMin: st.from, toMin: st.to });
+  card.hidden = !s;
+  if (!s) return;
+
+  const at = (ts) => new Date(ts * 1000).toLocaleTimeString(undefined,
+    { hour: "2-digit", minute: "2-digit" });
+  const parts = [];
+  if (s.battery_h > 0.02) {
+    parts.push(`${s.drained_wh.toFixed(1)} Wh over ${fmtH(s.battery_h)} on battery`
+      + (s.avg_w != null ? `, ${s.avg_w.toFixed(1)} W average` : ""));
+  }
+  if (s.ac_h > 0.02) parts.push(`${fmtH(s.ac_h)} on the charger`);
+  if (s.asleep_h > 0.02) parts.push(`${fmtH(s.asleep_h)} asleep`);
+  if (s.off_h > 0.02) parts.push("machine powered off");
+  if (s.unaccounted_h > 0.05) parts.push(`${fmtH(s.unaccounted_h)} unaccounted for`);
+  $("stretchNote").innerHTML = `<b>${at(s.start)}–${at(s.end)}</b>`
+    + (parts.length ? ` — ${parts.join(", ")}` : " — nothing recorded here");
+
+  barList($("stretchProcs"), (s.top_procs || []).map((p) => ({ label: p.comm, value: p.cpu_s })),
+    { color: "var(--cpu)", fmt: (i) => cpuTime(i.value) });
+
+  const facts = [
+    ["backlight", s.backlight != null ? `${Math.round(s.backlight)}%` : NONE],
+    ["cpu busy", s.cpu_busy != null ? pct(s.cpu_busy) : NONE],
+    ["power profile", s.profiles.length
+      ? s.profiles.map((p) => `${p.label} · ${fmtH(p.hours)}`).join("<br>") : NONE],
+  ];
+  $("stretchFacts").innerHTML = facts.map(([k, v]) =>
+    `<span class="k">${k}</span><span class="v">${v}</span>`).join("");
 }
 
 function renderHistory(d) {
@@ -616,6 +755,13 @@ function stepDay(delta) {
   renderDay(state.data);
 }
 
+/// Dropping a selection also drops the band it drew on the chart.
+function clearStretch() {
+  if (!state.stretch) return;
+  state.stretch = null;
+  if (state.tab === "day" && state.data) renderDay(state.data);
+}
+
 function showTab(tab) {
   state.tab = tab;
   history.replaceState(null, "", `#${tab}`);
@@ -636,6 +782,7 @@ async function boot() {
   });
   $("dayPrev").addEventListener("click", () => stepDay(-1));
   $("dayNext").addEventListener("click", () => stepDay(1));
+  $("stretchClose").addEventListener("click", clearStretch);
   $("range").addEventListener("change", (e) => {
     state.days = +e.target.value;
     reload();
@@ -653,6 +800,7 @@ async function boot() {
     if (e.key >= "1" && e.key <= "4") showTab(tabs[+e.key - 1]);
     if (e.key === "ArrowLeft") stepDay(-1);
     if (e.key === "ArrowRight") stepDay(1);
+    if (e.key === "Escape") clearStretch();
     if (e.key === "r") reload();
   });
 
