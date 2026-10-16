@@ -2,10 +2,11 @@
 # The frontend is static and embedded at compile time, so `cargo run` is all
 # you need; makepkg only comes in for the AUR package.
 
-.PHONY: help run daemon test test-live fmt build install uninstall package srcinfo dump status clean
+.PHONY: help run daemon test test-live fmt build install uninstall package srcinfo aur dump status clean
 
 PREFIX  ?= $(HOME)/.local
 UNITDIR ?= $(or $(XDG_CONFIG_HOME),$(HOME)/.config)/systemd/user
+AUR     ?= ssh://aur@aur.archlinux.org/battery-log-git.git
 
 help:            ## this list
 	@grep -E '^[a-z-]+:.*##' $(MAKEFILE_LIST) | sed 's/:.*## /\t/' | expand -t18
@@ -61,11 +62,44 @@ uninstall:       ## remove the user install (the log in ~/.local/state stays)
 	      $(UNITDIR)/battery-logd.service
 	systemctl --user daemon-reload
 
-package:         ## build the Arch package
-	cd packaging && makepkg -f
+package:         ## build the Arch package into packaging/ (in a scratch copy)
+	# makepkg writes the pkgver() result back into whatever recipe it
+	# runs (gotcha #7), so it gets a throwaway copy of the PKGBUILD and
+	# only the finished package moves back into packaging/.
+	tmp=$$(mktemp -d); \
+	trap 'rm -rf "$$tmp"' EXIT; \
+	cp packaging/PKGBUILD "$$tmp/"; \
+	(cd "$$tmp" && makepkg -f) && \
+	mv "$$tmp"/*.pkg.tar.zst packaging/ && \
+	ls -1t packaging/*.pkg.tar.zst | head -1
 
 srcinfo:         ## regenerate packaging/.SRCINFO after a recipe change
 	cd packaging && makepkg --printsrcinfo > .SRCINFO
+
+aur:             ## sync packaging/ to the AUR repo and push HEAD:master
+	# AUR repos reject every ref but master (gotcha #6), so the push is
+	# spelled HEAD:master here and nowhere else. The recipe copy gets the
+	# pkgver() answer worked out against this checkout -- the same thing
+	# a build would write back, minus the rewrite of the source PKGBUILD.
+	tmp=$$(mktemp -d); \
+	trap 'rm -rf "$$tmp"' EXIT; \
+	git clone -q $(AUR) "$$tmp/aur"; \
+	git -C "$$tmp/aur" checkout -q master 2>/dev/null || true; \
+	git clone -q . "$$tmp/$$(sed -n 's/^_pkgname=//p' packaging/PKGBUILD)"; \
+	cp packaging/PKGBUILD "$$tmp/aur/"; \
+	ver=$$(cd "$$tmp" && bash -c '. aur/PKGBUILD && pkgver') && \
+	[ -n "$$ver" ] && \
+	sed -i "s/^pkgver=.*/pkgver=$$ver/" "$$tmp/aur/PKGBUILD" && \
+	(cd "$$tmp/aur" && makepkg --printsrcinfo > .SRCINFO) && \
+	cd "$$tmp/aur" && \
+	if [ -n "$$(git status --porcelain)" ]; then \
+		git add -A && \
+		git commit -q -m "battery-log-git: sync packaging@$$(git -C "$(CURDIR)" rev-parse --short HEAD)" && \
+		git push origin HEAD:master && \
+		echo "pushed AUR master"; \
+	else \
+		echo "AUR already matches packaging/"; \
+	fi
 
 dump:            ## the dashboard as JSON (also what ui/demo.json is)
 	cargo run -q -p battery-log-tauri -- dump
