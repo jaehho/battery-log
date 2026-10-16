@@ -2,8 +2,12 @@
 //! failure mode is silent: a wrong rule produces a plausible chart. These
 //! fixtures pin the rules that were got wrong at least once.
 
-use battery_log_core::analysis::{analyse, day_start};
+use battery_log_core::analysis::{
+    analyse, day_start, local_day, stretch_from_rows, window_summary,
+};
 use battery_log_core::model::Sample;
+use battery_log_core::store::Store;
+use chrono::{Local, TimeZone, Timelike};
 
 fn sample(ts: i64, status: &str, energy_wh: f64) -> Sample {
     Sample {
@@ -327,4 +331,156 @@ fn a_gap_that_gained_charge_is_not_zero_watt_standby() {
     assert_eq!(sleeps.len(), 1);
     assert!(sleeps[0].watts.is_none(), "watts = {:?}", sleeps[0].watts);
     assert!(days[0].standby_w.is_none());
+}
+
+/// A brushed stretch must agree with the day walk it sits inside: half the
+/// hour is half the energy, and an interval straddling the edge of the brush
+/// is split by its overlap, not swallowed whole or counted double.
+#[test]
+fn a_stretch_reads_as_the_fraction_of_the_day_it_covers() {
+    let mut rows = Vec::new();
+    // 12 W for an hour, one sample a minute -- the first test's fixture.
+    for i in 0..=60 {
+        rows.push(sample(
+            1_000_000 + i * 60,
+            "Discharging",
+            60.0 - 0.2 * i as f64,
+        ));
+    }
+    let whole = stretch_from_rows(&rows, 1_000_000, 1_000_000 + 3600);
+    assert!(
+        (whole.drained_wh - 12.0).abs() < 0.05,
+        "drained {}",
+        whole.drained_wh
+    );
+    assert!((whole.battery_h - 1.0).abs() < 0.01);
+    assert!((whole.avg_w.unwrap() - 12.0).abs() < 0.1);
+
+    let half = stretch_from_rows(&rows, 1_000_000, 1_000_000 + 1800);
+    assert!(
+        (half.drained_wh - 6.0).abs() < 0.1,
+        "drained {}",
+        half.drained_wh
+    );
+    assert!((half.battery_h - 0.5).abs() < 0.01);
+}
+
+/// The stretch the user drags across a suspend must call it standby, not
+/// draw, exactly as the day view does.
+#[test]
+fn a_stretch_across_a_suspend_is_standby_not_draw() {
+    let mut rows = Vec::new();
+    for i in 0..10 {
+        rows.push(sample(
+            5_000_000 + i * 60,
+            "Discharging",
+            50.0 - 0.2 * i as f64,
+        ));
+    }
+    rows.push({
+        let mut s = sample(5_000_000 + 600, "Discharging", 48.2);
+        s.kind = "presleep".into();
+        s
+    });
+    rows.push({
+        let mut s = sample(5_000_000 + 600 + 2 * 3600, "Discharging", 47.2);
+        s.kind = "resume".into();
+        s.slept_s = Some(2 * 3600);
+        s.elapsed_s = Some(2 * 3600);
+        s
+    });
+    for i in 1..=10 {
+        rows.push(sample(
+            5_000_000 + 600 + 2 * 3600 + i * 60,
+            "Discharging",
+            47.2 - 0.05 * i as f64,
+        ));
+    }
+    let (start, end) = (5_000_000, 5_000_000 + 600 + 2 * 3600 + 600);
+    let s = stretch_from_rows(&rows, start, end);
+    assert!((s.asleep_h - 2.0).abs() < 0.01, "asleep {}", s.asleep_h);
+    // 9 minutes before the suspend, 10 after; the suspend itself is not draw.
+    assert!(
+        (s.battery_h - 19.0 / 60.0).abs() < 0.02,
+        "battery_h {}",
+        s.battery_h
+    );
+
+    // A brush entirely inside the suspend is all standby and no draw -- the
+    // one reading that must not come back as a plausible 0.00 W.
+    let mid = stretch_from_rows(&rows, 5_000_000 + 1200, 5_000_000 + 7000);
+    assert!(mid.battery_h < 0.001, "battery_h {}", mid.battery_h);
+    assert!(mid.drained_wh < 0.001);
+    assert!(
+        (mid.asleep_h - (7000 - 1200) as f64 / 3600.0).abs() < 0.01,
+        "asleep {}",
+        mid.asleep_h
+    );
+}
+
+/// A brush can easily contain no samples at all -- an hour inside a suspend,
+/// say -- and it must still read the intervals that bracket it. Regression:
+/// the stretch wrapper used to fetch only the rows inside the window, so a
+/// mid-suspend brush came back as plausible all-zeros instead of standby.
+#[test]
+fn a_brush_with_no_rows_inside_still_reads_the_suspend() {
+    let path = std::env::temp_dir().join(format!("bl-stretch-test-{}.db", std::process::id()));
+    let store = Store::open_at(&path).unwrap();
+    let mut rows = Vec::new();
+    for i in 0..10 {
+        rows.push(sample(
+            5_000_000 + i * 60,
+            "Discharging",
+            50.0 - 0.2 * i as f64,
+        ));
+    }
+    rows.push({
+        let mut s = sample(5_000_000 + 600, "Discharging", 48.2);
+        s.kind = "presleep".into();
+        s
+    });
+    rows.push({
+        let mut s = sample(5_000_000 + 600 + 2 * 3600, "Discharging", 47.2);
+        s.kind = "resume".into();
+        s.slept_s = Some(2 * 3600);
+        s.elapsed_s = Some(2 * 3600);
+        s
+    });
+    for i in 1..=10 {
+        rows.push(sample(
+            5_000_000 + 600 + 2 * 3600 + i * 60,
+            "Discharging",
+            47.2 - 0.05 * i as f64,
+        ));
+    }
+    for r in &rows {
+        store.insert(r, &[]).unwrap();
+    }
+
+    // One brushed hour strictly inside the suspend.
+    let mid_ts = 5_000_000 + 1200;
+    let dt = Local.timestamp_opt(mid_ts, 0).single().unwrap();
+    let from = dt.hour() as f64 * 60.0 + dt.minute() as f64 + dt.second() as f64 / 60.0;
+    let s = window_summary(&store, &local_day(mid_ts), from, from + 60.0).unwrap();
+    assert!((s.asleep_h - 1.0).abs() < 0.02, "asleep {}", s.asleep_h);
+    assert!(s.battery_h < 0.001, "battery_h {}", s.battery_h);
+    assert!(s.drained_wh < 0.001);
+
+    // And a brush that starts inside the suspend and ends after it: the sleep
+    // part is standby, the part after is draw, neither bleeds into the other.
+    let resume_ts = 5_000_000 + 600 + 2 * 3600;
+    let dt = Local.timestamp_opt(resume_ts - 1800, 0).single().unwrap();
+    let from = dt.hour() as f64 * 60.0 + dt.minute() as f64 + dt.second() as f64 / 60.0;
+    let s = window_summary(&store, &local_day(resume_ts), from, from + 60.0).unwrap();
+    assert!((s.asleep_h - 0.5).abs() < 0.02, "asleep {}", s.asleep_h);
+    assert!(
+        (s.battery_h - (10.0 / 60.0)).abs() < 0.02,
+        "battery_h {}",
+        s.battery_h
+    );
+
+    drop(store);
+    for suffix in ["", "-wal", "-shm"] {
+        let _ = std::fs::remove_file(format!("{}{}", path.display(), suffix));
+    }
 }

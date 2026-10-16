@@ -4,7 +4,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use rusqlite::{params, Connection};
+use rusqlite::{params, Connection, OptionalExtension};
 
 use crate::model::{ProcDelta, Sample};
 
@@ -74,6 +74,48 @@ fn legacy_db_path() -> PathBuf {
         .parent()
         .map(|p| p.join("battery.db"))
         .unwrap_or_default()
+}
+
+/// Every column of `samples`, in the order `read_sample` expects.
+const SAMPLE_COLS: &str = "ts, kind, boot_id, status, capacity, energy_uwh, full_uwh, design_uwh,
+    power_uw, voltage_uv, cycles, ac, profile, model, backlight, displays_on,
+    external_displays, cpu_busy, deep_idle, load1, temp_c, wifi, bluetooth,
+    elapsed_s, slept_s, hw_sleep_us, last_hw_sleep_us, suspend_ok,
+    suspend_fail, source";
+
+fn read_sample(r: &rusqlite::Row) -> rusqlite::Result<Sample> {
+    Ok(Sample {
+        ts: r.get(0)?,
+        kind: r.get(1)?,
+        boot_id: r.get(2)?,
+        status: r.get(3)?,
+        capacity: r.get(4)?,
+        energy_uwh: r.get(5)?,
+        full_uwh: r.get(6)?,
+        design_uwh: r.get(7)?,
+        power_uw: r.get(8)?,
+        voltage_uv: r.get(9)?,
+        cycles: r.get(10)?,
+        ac: r.get(11)?,
+        profile: r.get(12)?,
+        model: r.get(13)?,
+        backlight: r.get(14)?,
+        displays_on: r.get::<_, Option<i64>>(15)?.unwrap_or(0),
+        external_displays: r.get::<_, Option<i64>>(16)?.unwrap_or(0),
+        cpu_busy: r.get(17)?,
+        deep_idle: r.get(18)?,
+        load1: r.get(19)?,
+        temp_c: r.get(20)?,
+        wifi: r.get(21)?,
+        bluetooth: r.get(22)?,
+        elapsed_s: r.get(23)?,
+        slept_s: r.get(24)?,
+        hw_sleep_us: r.get(25)?,
+        last_hw_sleep_us: r.get(26)?,
+        suspend_ok: r.get(27)?,
+        suspend_fail: r.get(28)?,
+        source: r.get(29)?,
+    })
 }
 
 pub struct Store {
@@ -200,49 +242,28 @@ impl Store {
     }
 
     pub fn rows(&self, since: i64, until: i64) -> rusqlite::Result<Vec<Sample>> {
-        let mut stmt = self.conn.prepare(
-            "SELECT ts, kind, boot_id, status, capacity, energy_uwh, full_uwh, design_uwh,
-                    power_uw, voltage_uv, cycles, ac, profile, model, backlight, displays_on,
-                    external_displays, cpu_busy, deep_idle, load1, temp_c, wifi, bluetooth,
-                    elapsed_s, slept_s, hw_sleep_us, last_hw_sleep_us, suspend_ok,
-                    suspend_fail, source
-             FROM samples WHERE ts >= ?1 AND ts < ?2 ORDER BY ts",
-        )?;
-        let rows = stmt.query_map(params![since, until], |r| {
-            Ok(Sample {
-                ts: r.get(0)?,
-                kind: r.get(1)?,
-                boot_id: r.get(2)?,
-                status: r.get(3)?,
-                capacity: r.get(4)?,
-                energy_uwh: r.get(5)?,
-                full_uwh: r.get(6)?,
-                design_uwh: r.get(7)?,
-                power_uw: r.get(8)?,
-                voltage_uv: r.get(9)?,
-                cycles: r.get(10)?,
-                ac: r.get(11)?,
-                profile: r.get(12)?,
-                model: r.get(13)?,
-                backlight: r.get(14)?,
-                displays_on: r.get::<_, Option<i64>>(15)?.unwrap_or(0),
-                external_displays: r.get::<_, Option<i64>>(16)?.unwrap_or(0),
-                cpu_busy: r.get(17)?,
-                deep_idle: r.get(18)?,
-                load1: r.get(19)?,
-                temp_c: r.get(20)?,
-                wifi: r.get(21)?,
-                bluetooth: r.get(22)?,
-                elapsed_s: r.get(23)?,
-                slept_s: r.get(24)?,
-                hw_sleep_us: r.get(25)?,
-                last_hw_sleep_us: r.get(26)?,
-                suspend_ok: r.get(27)?,
-                suspend_fail: r.get(28)?,
-                source: r.get(29)?,
-            })
-        })?;
+        let mut stmt = self.conn.prepare(&format!(
+            "SELECT {SAMPLE_COLS} FROM samples WHERE ts >= ?1 AND ts < ?2 ORDER BY ts"
+        ))?;
+        let rows = stmt.query_map(params![since, until], read_sample)?;
         rows.collect()
+    }
+
+    /// The last row strictly before `ts`. The interval that *enters* a window
+    /// starts outside it, so reading a stretch needs this one row from before.
+    pub fn row_before(&self, ts: i64) -> rusqlite::Result<Option<Sample>> {
+        let mut stmt = self.conn.prepare(&format!(
+            "SELECT {SAMPLE_COLS} FROM samples WHERE ts < ?1 ORDER BY ts DESC LIMIT 1"
+        ))?;
+        stmt.query_row(params![ts], read_sample).optional()
+    }
+
+    /// The first row at or after `ts`, for the interval that leaves a window.
+    pub fn row_after(&self, ts: i64) -> rusqlite::Result<Option<Sample>> {
+        let mut stmt = self.conn.prepare(&format!(
+            "SELECT {SAMPLE_COLS} FROM samples WHERE ts >= ?1 ORDER BY ts LIMIT 1"
+        ))?;
+        stmt.query_row(params![ts], read_sample).optional()
     }
 
     /// (total samples, first timestamp, file size in bytes)

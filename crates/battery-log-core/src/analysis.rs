@@ -271,6 +271,16 @@ fn round2(v: f64) -> f64 {
     (v * 100.0).round() / 100.0
 }
 
+fn buckets_by_hours(m: BTreeMap<String, Accum>) -> Vec<Bucket> {
+    let mut v: Vec<Bucket> = m.iter().map(|(k, a)| a.bucket(k)).collect();
+    v.sort_by(|a, b| {
+        b.hours
+            .partial_cmp(&a.hours)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    v
+}
+
 fn backlight_label(v: f64) -> &'static str {
     match v {
         v if v <= 25.0 => "0-25%",
@@ -588,24 +598,15 @@ pub fn analyse(
                 })
         })
         .collect();
-    let sort_by_hours = |m: BTreeMap<String, Accum>| {
-        let mut v: Vec<Bucket> = m.iter().map(|(k, a)| a.bucket(k)).collect();
-        v.sort_by(|a, b| {
-            b.hours
-                .partial_cmp(&a.hours)
-                .unwrap_or(std::cmp::Ordering::Equal)
-        });
-        v
-    };
 
     (
         out,
         sleeps,
         hour_buckets,
-        sort_by_hours(by_profile),
-        sort_by_hours(by_display),
-        sort_by_hours(by_backlight),
-        sort_by_hours(by_cpu),
+        buckets_by_hours(by_profile),
+        buckets_by_hours(by_display),
+        buckets_by_hours(by_backlight),
+        buckets_by_hours(by_cpu),
     )
 }
 
@@ -659,6 +660,195 @@ pub fn curves(rows: &[Sample], bucket_s: i64) -> BTreeMap<String, Curve> {
             (day, c)
         })
         .collect()
+}
+
+/// A power profile that was active somewhere in a stretch, and for how long.
+#[derive(Debug, Clone, Serialize)]
+pub struct StretchProfile {
+    pub label: String,
+    pub hours: f64,
+}
+
+/// What explains one brushed stretch of the draw chart: the draw itself, the
+/// context it happened under, and the processes that burned CPU in it.
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct Stretch {
+    pub start: i64,
+    pub end: i64,
+    pub battery_h: f64,
+    pub drained_wh: f64,
+    pub avg_w: Option<f64>,
+    pub ac_h: f64,
+    pub asleep_h: f64,
+    pub off_h: f64,
+    pub unaccounted_h: f64,
+    /// Mean backlight across the awake part of the stretch, 0-100. Unlike the
+    /// per-day column this is not restricted to time on battery: the question
+    /// a brush answers is what the window looked like, not what it cost.
+    pub backlight: Option<f64>,
+    /// Mean CPU busy across the awake part of the stretch.
+    pub cpu_busy: Option<f64>,
+    pub profiles: Vec<StretchProfile>,
+    pub top_procs: Vec<ProcDelta>,
+}
+
+/// The walk `analyse` does, clipped to one stretch of one day. The rules have
+/// to match its exactly, or a stretch will contradict the day it sits in: a
+/// seeded gap is attributed to nothing, a measured suspend is standby and not
+/// draw, and every number is an attribute of the interval between two samples.
+/// An interval straddling an edge contributes its overlap, with its energy
+/// spread across the interval proportionally -- the same assumption the chart
+/// makes when it draws a straight line between two points.
+pub fn stretch_from_rows(rows: &[Sample], start: i64, end: i64) -> Stretch {
+    let mut s = Stretch {
+        start,
+        end,
+        ..Default::default()
+    };
+    let mut by_profile: BTreeMap<String, f64> = BTreeMap::new();
+    let (mut bl_w, mut bl_h) = (0.0, 0.0);
+    let (mut cpu_w, mut cpu_h) = (0.0, 0.0);
+
+    for i in 1..rows.len() {
+        let (prev, cur) = (&rows[i - 1], &rows[i]);
+        let dt = cur.ts - prev.ts;
+        if dt <= 0 {
+            continue;
+        }
+        let (lo, hi) = (prev.ts.max(start), cur.ts.min(end));
+        if hi <= lo {
+            continue;
+        }
+        let overlap_h = (hi - lo) as f64 / 3600.0;
+        let share = overlap_h / (dt as f64 / 3600.0);
+
+        // Everything below mirrors `analyse` branch for branch.
+        let seeded = prev.source == "upower" || cur.source == "upower";
+        if seeded && dt > INFERRED_GAP_S {
+            s.unaccounted_h += overlap_h;
+            continue;
+        }
+        let powered_off =
+            !prev.boot_id.is_empty() && !cur.boot_id.is_empty() && prev.boot_id != cur.boot_id;
+        if cur.kind == "start" && !powered_off {
+            s.unaccounted_h += overlap_h;
+            continue;
+        }
+        let measured = cur.slept_s.is_some();
+        let slept = match cur.slept_s {
+            Some(v) => v,
+            None if dt > INFERRED_GAP_S && !seeded => dt,
+            _ => 0,
+        };
+        let is_sleep = if measured {
+            slept > MEASURED_SLEEP_S
+        } else {
+            slept > 0
+        };
+        if is_sleep || powered_off {
+            // The suspend ends at `cur`; it occupies the `slept` seconds before
+            // that, wherever they fall -- the same placement `analyse` uses, so
+            // a sleep across the edge of the brush is split, not swallowed.
+            let sleep_h = if powered_off {
+                dt as f64 / 3600.0
+            } else {
+                slept.max(0) as f64 / 3600.0
+            };
+            let (lo, hi) = (
+                (cur.ts - (sleep_h * 3600.0) as i64).max(start),
+                cur.ts.min(end),
+            );
+            if hi > lo {
+                let h = (hi - lo) as f64 / 3600.0;
+                if powered_off {
+                    s.off_h += h;
+                } else {
+                    s.asleep_h += h;
+                }
+            }
+            continue;
+        }
+
+        if prev.status == "Discharging" {
+            s.battery_h += overlap_h;
+            if let Some(w) = drained_wh(prev, cur) {
+                if w > 0.0 {
+                    s.drained_wh += w * share;
+                }
+            }
+        } else {
+            s.ac_h += overlap_h;
+        }
+        if let Some(b) = prev.backlight {
+            bl_w += b * overlap_h;
+            bl_h += overlap_h;
+        }
+        if let Some(c) = cur.cpu_busy {
+            cpu_w += c * overlap_h;
+            cpu_h += overlap_h;
+        }
+        if !prev.profile.is_empty() {
+            *by_profile.entry(prev.profile.clone()).or_default() += overlap_h;
+        }
+    }
+
+    s.avg_w = if s.battery_h > 0.02 {
+        Some(round2(s.drained_wh / s.battery_h))
+    } else {
+        None
+    };
+    if bl_h > 0.0 {
+        s.backlight = Some(round2(bl_w / bl_h));
+    }
+    if cpu_h > 0.0 {
+        s.cpu_busy = Some(round2(cpu_w / cpu_h));
+    }
+    let mut profiles: Vec<StretchProfile> = by_profile
+        .into_iter()
+        .map(|(label, hours)| StretchProfile {
+            label,
+            hours: round2(hours),
+        })
+        .collect();
+    profiles.sort_by(|a, b| {
+        b.hours
+            .partial_cmp(&a.hours)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    s.profiles = profiles;
+    s.battery_h = round2(s.battery_h);
+    s.drained_wh = round2(s.drained_wh);
+    s.ac_h = round2(s.ac_h);
+    s.asleep_h = round2(s.asleep_h);
+    s.off_h = round2(s.off_h);
+    s.unaccounted_h = round2(s.unaccounted_h);
+    s
+}
+
+/// Everything the stretch card shows, for one brushed window of one day.
+pub fn window_summary(
+    store: &Store,
+    date: &str,
+    from_min: f64,
+    to_min: f64,
+) -> rusqlite::Result<Stretch> {
+    let day = day_start(date);
+    let (a, b) = (from_min.min(to_min), from_min.max(to_min));
+    let (start, end) = (day + (a * 60.0) as i64, day + (b * 60.0) as i64);
+    let mut rows = store.rows(start, end)?;
+    // A stretch can easily contain no rows at all -- an hour inside a suspend,
+    // say -- so bracket it with the nearest rows on both sides. The pairs those
+    // form are the intervals that enter and leave the window; without them the
+    // brush would read as nothing rather than as the suspend it sits in.
+    if let Some(before) = store.row_before(start)? {
+        rows.insert(0, before);
+    }
+    if let Some(after) = store.row_after(end)? {
+        rows.push(after);
+    }
+    let mut st = stretch_from_rows(&rows, start, end);
+    st.top_procs = store.top_procs_on_battery(start, end, 8)?;
+    Ok(st)
 }
 
 /// Everything the window shows, in one call.
