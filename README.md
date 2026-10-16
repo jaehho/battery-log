@@ -28,6 +28,13 @@ make install
 systemctl --user enable --now battery-logd
 ```
 
+That install is live: launches run the checkout's last build and rebuild the
+tree in the background for the next one, so edits land on the next launch or
+daemon restart without a package cycle. A failed build never replaces a
+running binary — it lands in `~/.local/state/battery-log-live.log` instead.
+The two installs can coexist; the wrapper shadows the package in `PATH`, and
+either `make uninstall` or removing the package leaves the other working.
+
 The first run adopts an existing `~/.local/state/battery.db` (the shell/Python
 sampler this replaces) and, failing that, seeds itself from UPower's history so
 the window has something to show on day one.
@@ -132,8 +139,10 @@ crates/battery-log-core/   sampling, storage, and the analysis
   src/bin/battery-logd.rs  the sampler binary (no GUI linked)
 src-tauri/                 the window: IPC commands and the text/JSON CLI
 ui/                        the dashboard — static HTML, CSS and one JS file
+scripts/                   the live wrapper `make install` lays down, and its test
 packaging/                 AUR recipe, user service, launcher entry
 ```
 
 `make test` covers the interval walk, which is where every number comes from
-and whose failure mode is a plausible-looking wrong chart.
+and whose failure mode is a plausible-looking wrong chart — plus the install
+wrapper, whose failure mode is silently running nothing.

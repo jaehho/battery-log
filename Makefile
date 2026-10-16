@@ -2,7 +2,7 @@
 # The frontend is static and embedded at compile time, so `cargo run` is all
 # you need; makepkg only comes in for the AUR package.
 
-.PHONY: help run daemon test fmt build install uninstall package srcinfo dump status clean
+.PHONY: help run daemon test test-live fmt build install uninstall package srcinfo dump status clean
 
 PREFIX  ?= $(HOME)/.local
 UNITDIR ?= $(or $(XDG_CONFIG_HOME),$(HOME)/.config)/systemd/user
@@ -16,8 +16,11 @@ run:             ## launch the window (debug build)
 daemon:          ## run the sampler in the foreground, fast, for a look at it
 	cargo run --bin battery-logd -- --battery-interval 5 --ac-interval 5
 
-test:            ## unit tests (no GUI, no hardware)
+test: test-live  ## unit tests (no GUI, no hardware)
 	cargo test -p battery-log-core
+
+test-live:       ## the install wrapper never runs a failed build
+	scripts/test-battery-log-live
 
 fmt:
 	cargo fmt
@@ -25,9 +28,15 @@ fmt:
 build:           ## optimized binaries -> target/release/
 	cargo build --release --workspace
 
-install: build   ## install into ~/.local for this user (no sudo, no AUR needed)
-	install -Dm755 target/release/battery-log  $(PREFIX)/bin/battery-log
-	install -Dm755 target/release/battery-logd $(PREFIX)/bin/battery-logd
+install:         ## live wrappers in ~/.local for this user (no sudo)
+	# Two names, one script: each launch runs the checkout's last
+	# build and rebuilds the tree for the next one. @ROOT@ becomes the
+	# checkout that installed it.
+	install -d $(PREFIX)/bin
+	sed 's|^DEFAULT_ROOT="@ROOT@"|DEFAULT_ROOT="$(CURDIR)"|' \
+		scripts/battery-log-live > $(PREFIX)/bin/battery-log
+	chmod 755 $(PREFIX)/bin/battery-log
+	ln -sf battery-log $(PREFIX)/bin/battery-logd
 	install -Dm644 packaging/battery-log.desktop \
 		$(PREFIX)/share/applications/battery-log.desktop
 	install -Dm644 src-tauri/icons/128x128.png \
@@ -36,6 +45,11 @@ install: build   ## install into ~/.local for this user (no sudo, no AUR needed)
 		$(PREFIX)/share/icons/hicolor/32x32/apps/battery-log.png
 	sed 's#^ExecStart=/usr/bin/#ExecStart=$(PREFIX)/bin/#' packaging/battery-logd.service \
 		> $(UNITDIR)/battery-logd.service
+	# The live daemon rebuilds itself from the checkout, which the
+	# packaged sandbox refuses (read-only $HOME, 128M cap); it runs
+	# with the user's own permissions instead, like any other build.
+	sed -i '/^ProtectSystem=/d;/^ProtectHome=/d;/^PrivateTmp=/d;/^RestrictAddressFamilies=/d;/^MemoryMax=/d' \
+		$(UNITDIR)/battery-logd.service
 	systemctl --user daemon-reload
 	@echo "installed. start the sampler with: systemctl --user enable --now battery-logd"
 
