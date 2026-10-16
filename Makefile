@@ -61,8 +61,16 @@ uninstall:       ## remove the user install (the log in ~/.local/state stays)
 	      $(UNITDIR)/battery-logd.service
 	systemctl --user daemon-reload
 
-package:         ## build the Arch package
-	cd packaging && makepkg -f
+package:         ## build the Arch package into packaging/ (in a scratch copy)
+	# makepkg writes the pkgver() result back into whatever recipe it
+	# runs (gotcha #7), so it gets a throwaway copy of the PKGBUILD and
+	# only the finished package moves back into packaging/.
+	tmp=$$(mktemp -d); \
+	trap 'rm -rf "$$tmp"' EXIT; \
+	cp packaging/PKGBUILD "$$tmp/"; \
+	(cd "$$tmp" && makepkg -f) && \
+	mv "$$tmp"/*.pkg.tar.zst packaging/ && \
+	ls -1t packaging/*.pkg.tar.zst | head -1
 
 srcinfo:         ## regenerate packaging/.SRCINFO after a recipe change
 	cd packaging && makepkg --printsrcinfo > .SRCINFO
