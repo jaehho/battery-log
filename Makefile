@@ -2,7 +2,7 @@
 # The frontend is static and embedded at compile time, so `cargo run` is all
 # you need; makepkg only comes in for the AUR package.
 
-.PHONY: help run daemon test test-live fmt build install uninstall package srcinfo aur dump status clean
+.PHONY: help run daemon test test-live lint fmt build install uninstall package srcinfo aur dump status clean
 
 PREFIX  ?= $(HOME)/.local
 UNITDIR ?= $(or $(XDG_CONFIG_HOME),$(HOME)/.config)/systemd/user
@@ -22,6 +22,10 @@ test: test-live  ## unit tests (no GUI, no hardware)
 
 test-live:       ## the install wrapper never runs a failed build
 	scripts/test-battery-log-live
+
+lint:            ## clippy with warnings as errors, then a format check
+	cargo clippy --workspace --all-targets -- -D warnings
+	cargo fmt --check
 
 fmt:
 	cargo fmt

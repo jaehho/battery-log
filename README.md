@@ -141,3 +141,5 @@ packaging/                 AUR recipe, user service, launcher entry
 `make test` covers the interval walk, which is where every number comes from
 and whose failure mode is a plausible-looking wrong chart — plus the install
 wrapper, whose failure mode is silently running nothing.
+
+`make lint` runs clippy with warnings as errors, then `cargo fmt --check`. `make help` lists every target.
