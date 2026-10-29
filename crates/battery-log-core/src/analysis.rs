@@ -311,10 +311,9 @@ fn display_label(on: i64, external: i64) -> String {
     }
 }
 
-/// Walk the samples once and produce everything the dashboard needs.
-pub fn analyse(
-    rows: &[Sample],
-) -> (
+/// What [`analyse`] returns: the days, the sleeps, then the draw
+/// bucketed by hour, power profile, display, backlight and CPU load.
+pub type Analysis = (
     Vec<DayAgg>,
     Vec<Sleep>,
     Vec<Bucket>,
@@ -322,7 +321,10 @@ pub fn analyse(
     Vec<Bucket>,
     Vec<Bucket>,
     Vec<Bucket>,
-) {
+);
+
+/// Walk the samples once and produce everything the dashboard needs.
+pub fn analyse(rows: &[Sample]) -> Analysis {
     let mut days: BTreeMap<String, DayAgg> = BTreeMap::new();
     let mut sleeps: Vec<Sleep> = Vec::new();
     let mut by_hour: BTreeMap<u32, Accum> = BTreeMap::new();
@@ -451,7 +453,7 @@ pub fn analyse(
             // on a charger the endpoints did not admit to -- the old sampler
             // recorded "Discharging" straight through a 3-point gain. Reporting
             // that as 0.00 W standby is the flattering answer, not the true one.
-            let gained = drain.map_or(false, |w| w < -0.05)
+            let gained = drain.is_some_and(|w| w < -0.05)
                 || matches!((prev.capacity, cur.capacity), (Some(a), Some(b)) if b > a);
             let lost = match drain {
                 Some(w) if !on_ac && !powered_off && !gained => Some(round2(w.max(0.0))),
@@ -612,8 +614,9 @@ pub fn analyse(
 
 /// Per-day series for the intra-day charts, bucketed so the page stays small.
 pub fn curves(rows: &[Sample], bucket_s: i64) -> BTreeMap<String, Curve> {
-    let mut per_day: BTreeMap<String, BTreeMap<i64, (Option<i64>, Vec<f64>, Vec<f64>, u8)>> =
-        BTreeMap::new();
+    // One bucket: last capacity, discharge watts, CPU busy, state code.
+    type Slot = (Option<i64>, Vec<f64>, Vec<f64>, u8);
+    let mut per_day: BTreeMap<String, BTreeMap<i64, Slot>> = BTreeMap::new();
     for r in rows {
         let slot = (minutes_of(r.ts) * 60.0) as i64 / bucket_s;
         let day = per_day.entry(day_of(r.ts)).or_default();

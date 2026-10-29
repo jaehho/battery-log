@@ -10,6 +10,10 @@ use crate::model::{ProcDelta, Sample};
 
 pub const RETENTION_DAYS: i64 = 365;
 
+/// One `ALTER TABLE` per column added since the first release; see
+/// `Store::open_at`.
+const ADDED_COLUMNS: &[&str] = &["ALTER TABLE samples ADD COLUMN last_hw_sleep_us INTEGER"];
+
 const SCHEMA: &str = r#"
 CREATE TABLE IF NOT EXISTS samples (
     ts                INTEGER PRIMARY KEY,   -- unix seconds
@@ -137,7 +141,7 @@ impl Store {
         conn.execute_batch(SCHEMA)?;
         // Columns added after the first release. SQLite has no "add if
         // missing", and a duplicate-column error here is the success case.
-        for ddl in ["ALTER TABLE samples ADD COLUMN last_hw_sleep_us INTEGER"] {
+        for ddl in ADDED_COLUMNS {
             let _ = conn.execute(ddl, []);
         }
         let store = Store { conn };

@@ -2,7 +2,7 @@
 # The frontend is static and embedded at compile time, so `cargo run` is all
 # you need; makepkg only comes in for the AUR package.
 
-.PHONY: help run daemon test test-live fmt build install uninstall package srcinfo aur dump status clean
+.PHONY: help run daemon test test-live lint fmt build install uninstall package srcinfo aur dump status clean
 
 PREFIX  ?= $(HOME)/.local
 UNITDIR ?= $(or $(XDG_CONFIG_HOME),$(HOME)/.config)/systemd/user
@@ -23,7 +23,11 @@ test: test-live  ## unit tests (no GUI, no hardware)
 test-live:       ## the install wrapper never runs a failed build
 	scripts/test-battery-log-live
 
-fmt:
+lint:            ## clippy with warnings as errors, then a format check
+	cargo clippy --workspace --all-targets -- -D warnings
+	cargo fmt --check
+
+fmt:             ## format the code
 	cargo fmt
 
 build:           ## optimized binaries -> target/release/
@@ -107,6 +111,6 @@ dump:            ## the dashboard as JSON (also what ui/demo.json is)
 status:          ## the text summary
 	cargo run -q -p battery-log-tauri -- status
 
-clean:
+clean:           ## remove build output and ui/demo.json
 	cargo clean
 	rm -f ui/demo.json

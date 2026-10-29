@@ -71,7 +71,7 @@ impl ProcWatcher {
                 }
             }
             let mut ranked: Vec<(String, u64)> = by_comm.into_iter().collect();
-            ranked.sort_by(|a, b| b.1.cmp(&a.1));
+            ranked.sort_by_key(|a| std::cmp::Reverse(a.1));
             out = ranked
                 .into_iter()
                 .take(n)
