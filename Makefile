@@ -27,7 +27,7 @@ lint:            ## clippy with warnings as errors, then a format check
 	cargo clippy --workspace --all-targets -- -D warnings
 	cargo fmt --check
 
-fmt:
+fmt:             ## format the code
 	cargo fmt
 
 build:           ## optimized binaries -> target/release/
@@ -111,6 +111,6 @@ dump:            ## the dashboard as JSON (also what ui/demo.json is)
 status:          ## the text summary
 	cargo run -q -p battery-log-tauri -- status
 
-clean:
+clean:           ## remove build output and ui/demo.json
 	cargo clean
 	rm -f ui/demo.json
