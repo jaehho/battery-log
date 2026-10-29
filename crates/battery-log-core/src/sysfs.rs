@@ -371,7 +371,7 @@ impl Reader {
         let full = sum(|p| p.full_uwh);
         let capacity = if packs.len() > 1 {
             match (energy, full) {
-                (Some(e), Some(f)) if f > 0 => Some((100 * e / f) as i64),
+                (Some(e), Some(f)) if f > 0 => Some(100 * e / f),
                 _ => packs[0].capacity,
             }
         } else {
